@@ -29,7 +29,9 @@ const $meta = $('meta');
 const $moves = $('moves');
 const $copy = $('copy');
 
-const socket = io();
+// WebSocket direct : sans sticky session, le transport HTTP polling casse dès qu'il y a
+// plusieurs pods backend (la session du transport est locale au pod, pas dans Redis).
+const socket = io({ transports: ['websocket'] });
 
 // ---------- Menu / vue partie ----------
 function showMenu(notice = '') {

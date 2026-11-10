@@ -10,7 +10,7 @@ let client = null;
 
 // Sur Kubernetes, Redis peut démarrer après le backend. On attend que le port réponde
 // avant de créer le client (client.connect() réessaie sinon indéfiniment).
-const CONNECT_ATTEMPTS = 10;
+const CONNECT_ATTEMPTS = 30; // ~60 s : le temps qu'un pod Redis démarre et reçoive du trafic
 const CONNECT_DELAY_MS = 2000;
 
 function tcpReachable(host, port) {
@@ -49,6 +49,12 @@ async function getGame(id) {
   return memory.get(id) || null;
 }
 
+// Utilisé par la sonde de readiness : sans Redis, les parties ne sont plus partagées
+// entre les pods, donc le backend ne doit plus recevoir de trafic.
+function ping() {
+  return !client || client.isReady;
+}
+
 async function saveGame(id, game) {
   if (client) {
     await client.set(`game:${id}`, JSON.stringify(game), { EX: TTL_SECONDS });
@@ -57,4 +63,4 @@ async function saveGame(id, game) {
   }
 }
 
-module.exports = { init, getGame, saveGame };
+module.exports = { init, getGame, saveGame, ping };

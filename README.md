@@ -29,6 +29,17 @@ L'horloge des joueurs n'est pas stockée : Redis garde un horodatage `turnStarte
 restant est recalculé à chaque lecture (`currentClocks()`). Deux pods donnent donc le même temps
 au millième près.
 
+Le client force le transport **WebSocket** (`transports: ['websocket']` dans `app.js`). Ce n'est
+pas un détail : le transport HTTP *polling* de Socket.IO ne fonctionne pas avec plusieurs réplicas
+sans sticky session, car la session du transport est créée en mémoire dans le pod qui répond au
+handshake — l'adaptateur Redis ne partage que les diffusions, pas les sessions. Mesuré sur le
+cluster : avec 2 réplicas backend, le polling échoue systématiquement (`Session ID unknown`), le
+WebSocket passe dans tous les cas (la connexion TCP reste collée à un seul pod).
+
+Le backend ne dépend de Mongo que pour l'archivage : si Mongo n'est pas encore prêt, la connexion
+est retentée à chaque archivage et à chaque sonde (`ensure()` dans `db.js`), sans redémarrer le pod.
+
+
 ## Utilisation
 
 1. Ouvrir l'application : une partie est créée, son identifiant est dans l'URL (`?game=xxxx`).
@@ -123,6 +134,20 @@ kubectl scale deploy/backend --replicas=3
 Le navigateur passe par « Connexion perdue, reconnexion… », se reconnecte au pod suivant,
 renvoie `join` et récupère l'état : la partie et l'horloge repartent là où elles en étaient.
 
+## Ce qui a été validé sur minikube
+
+Minikube v1.39, Kubernetes v1.37, addon `ingress`, réseau lent (téléchargement des images au
+premier démarrage).
+
+- `kubectl apply -f k8s/` sur un cluster neuf : 11 ressources créées, les 6 pods finissent `Running`
+  (2 backend, 2 frontend, 1 redis, 1 mongo).
+- Le premier démarrage est lent (téléchargement de `mongo:7`) : le backend reste `Ready` et se
+  connecte à Mongo dès qu'il répond, sans redémarrage.
+- Partie complète à deux joueurs + abandon, à travers l'Ingress, avec 2 puis 3 réplicas backend.
+- Partie terminée bien retrouvée dans MongoDB (`db.games`).
+- `kubectl delete pod -l app=backend` en pleine partie : après reconnexion, les coups et l'horloge
+  sont identiques.
+
 ## Nettoyage
 
 ```bash
@@ -140,8 +165,12 @@ minikube stop             # ou minikube delete
   différente — hors du périmètre du TP.
 - **`getGame` puis `saveGame` ne sont pas atomiques.** Deux coups simultanés sur la *même* partie
   pourraient s'écraser. En pratique la validation tour par tour l'empêche, mais ce n'est pas atomique.
-- **`/readyz` interroge Mongo.** Si Mongo tombe, le backend est retiré du Service même s'il pourrait
-  encore servir les parties en cours ; c'est un choix volontaire (dépendance déclarée).
+- **`/readyz` ne teste que Redis.** Redis est la dépendance critique (sans lui, les parties ne sont
+  plus partagées entre pods). Mongo ne retire pas le backend du Service : le jeu reste jouable, seules
+  les archives sont perdues, et la connexion se rétablit toute seule au retour de Mongo.
+- **Transport WebSocket uniquement.** Si un proxy d'entreprise bloque les WebSocket, il n'y a pas de
+  repli en polling (il faudrait des sticky sessions sur l'Ingress côté frontend *et* entre le
+  frontend et le backend, ce qu'un nginx standard ne fait pas sans module).
 - **Mot de passe Mongo en clair** dans `k8s/config.yaml` (Secret de démonstration). En réel, le Secret
   serait créé hors dépôt (`kubectl create secret`), voire chiffré (SealedSecret, Vault).
 - **Le navigateur a besoin d'Internet** : `chess.js` et les images des pièces viennent de CDN.

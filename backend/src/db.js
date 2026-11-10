@@ -1,38 +1,46 @@
 // Archivage des parties terminées dans MongoDB (actif si MONGO_URL est défini).
+//
+// Sur Kubernetes, MongoDB peut être encore en train de télécharger son image quand le
+// backend démarre. Plutôt que d'abandonner définitivement, on retente la connexion au
+// prochain archivage (et à la prochaine sonde) : l'archivage se répare tout seul dès que
+// Mongo répond, sans redémarrer le pod et sans bloquer le jeu entre-temps.
 const { MongoClient } = require('mongodb');
 
-let games = null;
+let games = null;      // collection, null tant que MongoDB n'a pas répondu
+let mongoUrl = null;
+let connecting = null; // tentative en cours, pour ne pas en lancer plusieurs en parallèle
 
-// Sur Kubernetes, Mongo peut démarrer après le backend : on réessaie quelques fois
-// avant d'abandonner (l'échec reste non bloquant, on perd juste l'archivage).
-const CONNECT_ATTEMPTS = 5;
-const CONNECT_DELAY_MS = 3000;
-
-async function init(mongoUrl) {
-  if (!mongoUrl) {
-    console.warn('[db] MONGO_URL absent : les parties ne seront pas archivées');
-    return;
-  }
-  for (let attempt = 1; ; attempt++) {
-    const client = new MongoClient(mongoUrl, { serverSelectionTimeoutMS: 5000 });
-    try {
+async function ensure() {
+  if (games) return games;
+  if (!mongoUrl) return null;
+  if (!connecting) {
+    connecting = (async () => {
+      const client = new MongoClient(mongoUrl, { serverSelectionTimeoutMS: 5000 });
       await client.connect();
       games = client.db(process.env.MONGO_DB || 'chess').collection('games');
       console.log('[db] connecté à MongoDB');
-      return;
-    } catch (err) {
-      await client.close().catch(() => {});
-      if (attempt >= CONNECT_ATTEMPTS) throw err;
-      console.warn(`[db] MongoDB indisponible (tentative ${attempt}), nouvel essai dans 3 s`);
-      await new Promise((r) => setTimeout(r, CONNECT_DELAY_MS));
-    }
+      return games;
+    })().finally(() => { connecting = null; });
   }
+  return connecting;
+}
+
+async function init(mongoUrlFromEnv) {
+  if (!mongoUrlFromEnv) {
+    console.warn('[db] MONGO_URL absent : les parties ne seront pas archivées');
+    return;
+  }
+  mongoUrl = mongoUrlFromEnv;
+  await ensure().catch((err) =>
+    console.warn('[db] MongoDB indisponible pour le moment :', err.message)
+  );
 }
 
 async function archiveGame(gameId, game) {
-  if (!games) return;
+  const collection = await ensure().catch(() => null);
+  if (!collection) return;
   try {
-    await games.updateOne(
+    await collection.updateOne(
       { _id: gameId },
       {
         $set: {
@@ -49,11 +57,4 @@ async function archiveGame(gameId, game) {
   }
 }
 
-// Utilisé par la sonde de readiness
-async function ping() {
-  if (!games) return true;
-  await games.estimatedDocumentCount();
-  return true;
-}
-
-module.exports = { init, archiveGame, ping };
+module.exports = { init, archiveGame };

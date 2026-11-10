@@ -119,13 +119,12 @@ async function main() {
 
   // --- Sondes Kubernetes ---
   app.get('/healthz', (_req, res) => res.send('ok'));           // liveness
-  app.get('/readyz', async (_req, res) => {                     // readiness
-    try {
-      await db.ping();
-      res.send('ready');
-    } catch {
-      res.status(503).send('not ready');
-    }
+  // Readiness : seule la dépendance critique (Redis) est testée. Sans Mongo le jeu
+  // fonctionne encore, seules les archives sont perdues, donc Mongo ne doit pas
+  // retirer le backend du Service.
+  app.get('/readyz', (_req, res) => {
+    if (store.ping()) res.send('ready');
+    else res.status(503).send('not ready');
   });
   // Utile en démo : voir quel pod répond
   app.get('/api/whoami', (_req, res) => res.json({ pod: process.env.HOSTNAME }));

@@ -48,17 +48,24 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data/db
-          # "ping" est autorisé sans authentification, la sonde ne demande pas d'identifiants
+          # "ping" est autorisé sans authentification, la sonde ne demande pas d'identifiants.
+          # timeoutSeconds est explicite : mongosh met ~0,3 s à démarrer et peut dépasser
+          # la seconde par défaut sur un nœud chargé, ce qui rendrait Mongo "non prêt"
+          # et casserait le DNS du Service headless.
           readinessProbe:
             exec:
               command: ["mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             exec:
               command: ["mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
             initialDelaySeconds: 30
             periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               cpu: 100m
