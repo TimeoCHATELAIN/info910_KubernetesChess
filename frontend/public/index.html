@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Échecs en ligne</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
+  <style>
+    :root {
+      --bg: #14202b;
+      --panel: #1d2e3c;
+      --line: #2c4357;
+      --text: #e8eef2;
+      --muted: #8da2b3;
+      --accent: #3fb8af;
+      --danger: #e5675b;
+      --gold: #e3b341;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+      margin: 0; min-height: 100vh;
+      background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      display: flex; justify-content: center; padding: 24px 16px;
+    }
+    .page { width: 100%; max-width: 920px; display: grid; gap: 20px; align-content: start; }
+    h1 { margin: 0; font-size: 1.7rem; font-weight: 600; text-align: center; }
+
+    /* ---------- Menu de création ---------- */
+    #menu { display: grid; gap: 12px; justify-items: center; }
+    #menu-notice { color: var(--danger); text-align: center; }
+    #menu-notice:empty { display: none; }
+    .menu-card {
+      width: 100%; max-width: 480px; background: var(--panel);
+      border-radius: 10px; padding: 24px; display: grid; gap: 24px;
+    }
+    fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+    legend { font-weight: 600; padding: 0; margin-bottom: 10px; }
+    .options { display: flex; flex-wrap: wrap; gap: 8px; }
+    .option { position: relative; }
+    .option input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; cursor: pointer; }
+    .option span {
+      display: flex; align-items: center; gap: 8px; padding: 8px 14px; min-height: 44px;
+      border: 2px solid var(--line); border-radius: 8px; color: var(--muted);
+      transition: border-color .15s, background .15s, color .15s;
+    }
+    .option input:checked + span { border-color: var(--accent); background: rgba(63, 184, 175, .12); color: var(--text); }
+    .option input:focus-visible + span { outline: 2px solid var(--text); outline-offset: 2px; }
+    .option img { width: 30px; height: 30px; }
+    .option .pair img { width: 24px; height: 24px; margin-right: -8px; }
+    .option .pair { display: flex; padding-right: 8px; }
+    .primary { background: var(--accent); color: var(--bg); font-weight: 600; padding: 12px 16px; border-color: var(--accent); }
+    .primary:hover { background: #55cdc4; color: var(--bg); }
+    .hint { margin: 0; color: var(--muted); font-size: .9rem; text-align: center; }
+
+    /* ---------- Partie ---------- */
+    #game {
+      display: grid; gap: 16px;
+      grid-template-columns: 1fr 1fr;
+      grid-template-areas:
+        "board board"
+        "white black"
+        "info  info";
+    }
+    @media (min-width: 760px) {
+      #game {
+        grid-template-columns: 160px minmax(0, 1fr) 160px;
+        grid-template-areas:
+          "white board black"
+          "info  info  info";
+      }
+    }
+
+    .board-wrap { grid-area: board; position: relative; width: 100%; max-width: 560px; margin: 0 auto; }
+    #board { width: 100%; }
+
+    /* Résultat affiché sur l'échiquier */
+    #result {
+      position: absolute; inset: 0; z-index: 5;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(20, 32, 43, .86); border-radius: 4px; padding: 16px;
+    }
+    .result-card { text-align: center; display: grid; gap: 10px; justify-items: center; }
+    #result-title { font-size: 2rem; font-weight: 700; }
+    #result-title.win { color: var(--gold); }
+    #result-title.loss { color: var(--danger); }
+    #result-detail { color: var(--muted); }
+    .result-card .actions { margin-top: 8px; justify-content: center; }
+
+    /* Cartes des joueurs : roi blanc à gauche, roi noir à droite */
+    .player {
+      background: var(--panel);
+      border: 3px solid transparent;           /* toujours présente pour éviter tout décalage */
+      border-radius: 10px;
+      padding: 12px 8px;
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      align-self: start;
+      transition: border-color .15s, box-shadow .15s, opacity .15s;
+    }
+    #card-white { grid-area: white; }
+    #card-black { grid-area: black; }
+    .player.active { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(63, 184, 175, .25); }
+    .player.winner { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(227, 179, 65, .25); }
+    .player.loser { opacity: .55; }
+    .player img.king { width: 64px; height: 64px; }
+    .player .label { font-size: .85rem; color: var(--muted); min-height: 1.2em; }
+    .badge { font-size: .8rem; font-weight: 700; color: var(--bg); background: var(--gold); border-radius: 4px; padding: 2px 8px; }
+    .clock { font-size: 1.7rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .clock.low { color: var(--danger); }
+    .captured { display: flex; flex-wrap: wrap; justify-content: center; min-height: 26px; width: 100%; }
+    .captured img { width: 22px; height: 22px; margin: 0 -3px; }
+
+    /* Infos de partie */
+    #info { grid-area: info; background: var(--panel); border-radius: 8px; padding: 16px; display: grid; gap: 12px; }
+    #status { font-weight: 600; }
+    #meta { color: var(--muted); font-size: .9rem; }
+    #moves { margin: 0; padding-left: 1.4em; font-size: .9rem; color: var(--muted); max-height: 160px; overflow-y: auto; column-width: 110px; }
+
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    button {
+      font: inherit; cursor: pointer; padding: 8px 12px; border-radius: 6px;
+      border: 1px solid var(--accent); background: transparent; color: var(--accent);
+    }
+    button:hover { background: var(--accent); color: var(--bg); }
+    button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+    button.danger { border-color: var(--danger); color: var(--danger); }
+    button.danger:hover { background: var(--danger); color: var(--bg); }
+
+    .highlight { box-shadow: inset 0 0 3px 3px rgba(63, 184, 175, .7); }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>Échecs en ligne</h1>
+
+    <!-- Menu : affiché quand on ouvre le site sans lien de partie -->
+    <section id="menu" hidden>
+      <div id="menu-notice" role="alert"></div>
+      <div class="menu-card">
+        <fieldset>
+          <legend>Temps par joueur</legend>
+          <div class="options">
+            <label class="option"><input type="radio" name="minutes" value="1"><span>1 min</span></label>
+            <label class="option"><input type="radio" name="minutes" value="3"><span>3 min</span></label>
+            <label class="option"><input type="radio" name="minutes" value="5"><span>5 min</span></label>
+            <label class="option"><input type="radio" name="minutes" value="10" checked><span>10 min</span></label>
+            <label class="option"><input type="radio" name="minutes" value="15"><span>15 min</span></label>
+            <label class="option"><input type="radio" name="minutes" value="30"><span>30 min</span></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Votre camp</legend>
+          <div class="options">
+            <label class="option"><input type="radio" name="side" value="white"><span><img src="https://chessboardjs.com/img/chesspieces/wikipedia/wK.png" alt="">Blancs</span></label>
+            <label class="option"><input type="radio" name="side" value="black"><span><img src="https://chessboardjs.com/img/chesspieces/wikipedia/bK.png" alt="">Noirs</span></label>
+            <label class="option"><input type="radio" name="side" value="random" checked><span><span class="pair"><img src="https://chessboardjs.com/img/chesspieces/wikipedia/wK.png" alt=""><img src="https://chessboardjs.com/img/chesspieces/wikipedia/bK.png" alt=""></span>Aléatoire</span></label>
+          </div>
+        </fieldset>
+
+        <button id="create" class="primary">Créer la partie</button>
+        <p class="hint">Vous obtiendrez un lien à envoyer à votre adversaire.</p>
+      </div>
+    </section>
+
+    <!-- Partie -->
+    <main id="game" hidden>
+      <section class="player" id="card-white" aria-label="Joueur blanc">
+        <img class="king" src="https://chessboardjs.com/img/chesspieces/wikipedia/wK.png" alt="Roi blanc">
+        <div class="label" id="label-white">Blancs</div>
+        <div class="badge" id="badge-white" hidden>Vainqueur</div>
+        <div class="clock" id="clock-white">10:00</div>
+        <div class="captured" id="captured-white" aria-label="Pièces prises par les blancs"></div>
+      </section>
+      <div class="board-wrap">
+        <div id="board"></div>
+        <div id="result" hidden>
+          <div class="result-card">
+            <div id="result-title"></div>
+            <div id="result-detail"></div>
+            <div class="actions">
+              <button id="result-view">Voir l'échiquier</button>
+              <button id="result-new">Nouvelle partie</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section class="player" id="card-black" aria-label="Joueur noir">
+        <img class="king" src="https://chessboardjs.com/img/chesspieces/wikipedia/bK.png" alt="Roi noir">
+        <div class="label" id="label-black">Noirs</div>
+        <div class="badge" id="badge-black" hidden>Vainqueur</div>
+        <div class="clock" id="clock-black">10:00</div>
+        <div class="captured" id="captured-black" aria-label="Pièces prises par les noirs"></div>
+      </section>
+
+      <section id="info">
+        <div id="status">Connexion…</div>
+        <div id="meta"></div>
+        <ol id="moves"></ol>
+        <div class="actions">
+          <button id="copy">Copier le lien de la partie</button>
+          <button id="resign" class="danger">Abandonner</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html> 

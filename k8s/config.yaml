@@ -1,0 +1,21 @@
+# Réglages non sensibles du backend.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  PORT: "3000"
+  REDIS_URL: "redis://redis:6379"
+  MONGO_DB: "chess"
+---
+# Identifiants MongoDB.
+# Jeu de démonstration : le mot de passe est volontairement en clair dans le dépôt.
+# En vrai, ce Secret serait créé hors dépôt (kubectl create secret, Vault, SealedSecret…).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mongo-credentials
+type: Opaque
+stringData:
+  MONGO_USER: chess
+  MONGO_PASSWORD: chess-demo-password

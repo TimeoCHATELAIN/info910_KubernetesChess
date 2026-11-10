@@ -1,0 +1,75 @@
+# MongoDB : archivage des parties terminées.
+# StatefulSet (et non Deployment) : le volume doit suivre le pod.
+# Avec une Deployment + PVC ReadWriteOnce, un RollingUpdate laisserait le nouveau pod
+# en Pending car l'ancien tient encore le disque.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+spec:
+  clusterIP: None # headless : le DNS "mongo" pointe directement sur le pod
+  selector:
+    app: mongo
+  ports:
+    - port: 27017
+      targetPort: 27017
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongo
+spec:
+  serviceName: mongo
+  replicas: 1 # pas de réplica MongoDB ici : voir README
+  selector:
+    matchLabels:
+      app: mongo
+  template:
+    metadata:
+      labels:
+        app: mongo
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:7
+          ports:
+            - containerPort: 27017
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-credentials
+                  key: MONGO_USER
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-credentials
+                  key: MONGO_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          # "ping" est autorisé sans authentification, la sonde ne demande pas d'identifiants
+          readinessProbe:
+            exec:
+              command: ["mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

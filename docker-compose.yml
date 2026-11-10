@@ -1,0 +1,31 @@
+# Test local avant le passage à Kubernetes :  docker compose up --build
+# Puis ouvrir http://localhost:8080
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+  backend:
+    build: ./backend
+    environment:
+      PORT: 3000
+      REDIS_URL: redis://redis:6379
+      MONGO_URL: mongodb://mongo:27017
+      MONGO_DB: chess
+    depends_on:
+      - redis
+      - mongo
+
+  redis:
+    image: redis:7-alpine
+
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:

@@ -1,0 +1,79 @@
+# Backend Node : peut tourner à plusieurs réplicas.
+# L'état des parties est dans Redis et les événements Socket.IO passent par l'adaptateur
+# Redis, donc deux joueurs connectés à deux pods différents voient la même partie.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend # nom utilisé par le proxy nginx du frontend (http://backend:3000)
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      # Laisse le temps de fermer les connexions Socket.IO au SIGTERM
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000 # utilisateur "node" de l'image (UID explicite : k8s ne sait pas
+                        # vérifier un nom d'utilisateur non numérique)
+      containers:
+        - name: backend
+          image: chess-backend:1.0
+          imagePullPolicy: IfNotPresent # image construite localement dans minikube
+          ports:
+            - containerPort: 3000
+          env:
+            - name: MONGO_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-credentials
+                  key: MONGO_USER
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-credentials
+                  key: MONGO_PASSWORD
+            # $(VAR) est remplacé par Kubernetes avec les variables déclarées au-dessus
+            - name: MONGO_URL
+              value: "mongodb://$(MONGO_USER):$(MONGO_PASSWORD)@mongo:27017/?authSource=admin"
+          envFrom:
+            - configMapRef:
+                name: backend-config
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              memory: 256Mi

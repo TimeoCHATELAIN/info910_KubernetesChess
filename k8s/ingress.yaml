@@ -1,0 +1,21 @@
+# Point d'entrée HTTP. Tout passe par le frontend, qui relaie lui-même Socket.IO au backend.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chess
+  annotations:
+    # Les parties durent plus longtemps que le timeout par défaut de nginx (60 s)
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http: # pas de host : répond sur l'IP du cluster (pas besoin de /etc/hosts)
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
